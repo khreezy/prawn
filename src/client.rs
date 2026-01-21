@@ -40,6 +40,7 @@ impl Display for TidalClientError {
     }
 }
 
+#[derive(Clone)]
 pub struct TidalClient {
     api_client: ApiClient,
     oauth_client: oauth2::basic::BasicClient<
@@ -90,16 +91,18 @@ pub struct OAuthConfig {
     pub client_secret: Option<String>,
 }
 
+type OAuthClient = oauth2::basic::BasicClient<
+    EndpointSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointSet,
+>;
+
 struct AuthTokenRefreshMiddleware {
     auth_provider: crate::auth_provider::AuthProvider,
     http_client: oauth2::reqwest::Client,
-    oauth_client: oauth2::basic::BasicClient<
-        EndpointSet,
-        EndpointNotSet,
-        EndpointNotSet,
-        EndpointNotSet,
-        EndpointSet,
-    >,
+    oauth_client: OAuthClient,
 }
 
 impl AuthTokenRefreshMiddleware {
@@ -209,6 +212,62 @@ fn to_scopes(scopes: Vec<&str>) -> Vec<Scope> {
 }
 
 impl TidalClient {
+    fn api_client_from_token(
+        oauth_http_client: reqwest::Client,
+        oauth_client: OAuthClient,
+        auth_token: Token,
+    ) -> Result<ApiClient> {
+        let api_http_client = reqwest::Client::new();
+        let expiry = match DateTime::parse_from_rfc3339(&auth_token.expiry) {
+            Ok(e) => e,
+            Err(e) => {
+                return Err(TidalClientError {
+                    msg: String::from("failed to parse expiry"),
+                    cause: e.to_string(),
+                })
+            }
+        }
+        .to_utc();
+
+        let auth_provider = AuthProvider {
+            access_token: Arc::new(RwLock::new(AccessTokenWithExpiry {
+                access_token: oauth2::AccessToken::new(auth_token.access_token),
+                expiry,
+            })),
+            refresh_token: oauth2::RefreshToken::new(auth_token.refresh_token),
+        };
+
+        let refresh_middleware = AuthTokenRefreshMiddleware {
+            auth_provider,
+            http_client: oauth_http_client,
+            oauth_client: oauth_client,
+        };
+
+        let middleware_client = ClientBuilder::new(api_http_client)
+            .with(refresh_middleware)
+            .build();
+
+        Ok(ApiClient::new(Arc::new(Configuration {
+            client: middleware_client,
+            oauth_access_token: None,
+            ..Default::default()
+        })))
+    }
+
+    pub fn with_token(self, auth_token: Token) -> Result<Self> {
+        let api_client = Self::api_client_from_token(
+            self.oauth_http_client.clone(),
+            self.oauth_client.clone(),
+            auth_token,
+        )?;
+
+        Ok(Self {
+            api_client,
+            oauth_client: self.oauth_client,
+            oauth_http_client: self.oauth_http_client,
+        })
+    }
+
     pub fn new(config: TidalClientConfig) -> Result<Self> {
         let oauth_http_client = match oauth2::reqwest::ClientBuilder::new()
             .redirect(oauth2::reqwest::redirect::Policy::none())
@@ -267,46 +326,14 @@ impl TidalClient {
             None => oauth_client,
         };
 
-        let api_http_client = reqwest::Client::new();
-
         let api_client = match config.auth_token {
-            Some(auth_token) => {
-                let expiry = match DateTime::parse_from_rfc3339(&auth_token.expiry) {
-                    Ok(e) => e,
-                    Err(e) => {
-                        return Err(TidalClientError {
-                            msg: String::from("failed to parse expiry"),
-                            cause: e.to_string(),
-                        })
-                    }
-                }
-                .to_utc();
-
-                let auth_provider = AuthProvider {
-                    access_token: Arc::new(RwLock::new(AccessTokenWithExpiry {
-                        access_token: oauth2::AccessToken::new(auth_token.access_token),
-                        expiry,
-                    })),
-                    refresh_token: oauth2::RefreshToken::new(auth_token.refresh_token),
-                };
-
-                let refresh_middleware = AuthTokenRefreshMiddleware {
-                    auth_provider,
-                    http_client: oauth_http_client.clone(),
-                    oauth_client: oauth_client.clone(),
-                };
-
-                let middleware_client = ClientBuilder::new(api_http_client)
-                    .with(refresh_middleware)
-                    .build();
-
-                ApiClient::new(Arc::new(Configuration {
-                    client: middleware_client,
-                    oauth_access_token: None,
-                    ..Default::default()
-                }))
-            }
+            Some(auth_token) => Self::api_client_from_token(
+                oauth_http_client.clone(),
+                oauth_client.clone(),
+                auth_token,
+            )?,
             None => {
+                let api_http_client = reqwest::Client::new();
                 let middleware_client = ClientBuilder::new(api_http_client).build();
                 ApiClient::new(Arc::new(Configuration {
                     client: middleware_client,
@@ -348,6 +375,7 @@ impl TidalClient {
     }
 
     /// Exchanges client_id and client_secret for an access token.
+    ///
     pub async fn exchange_client_credentials_for_token(&self, scopes: Vec<&str>) -> Result<Token> {
         match self
             .oauth_client
