@@ -2,7 +2,7 @@
 name = "barnacle"
 version = "0.0.1"
 authors = ["Kyle Hiller", "OpenAPI Generator team and contributors"]
-description = "The TIDAL API is a [JSON:API](https://jsonapi.org/)–compliant web API that exposes TIDAL’s music, metadata, and user-related functionality through a consistent, resource-oriented design. More information and API management are available at [developer.tidal.com](developer.tidal.com)"
+description = "Rust Client for the Tidal API providing comprehensive API coverag, and easy OAuth management"
 license = "MIT"
 edition = "2021"
 
@@ -23,3 +23,8 @@ default = ["native-tls"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 internal = []
+
+[dev-dependencies]
+smol = "2.0.2"
+httptest = "0.16.4"
+tokio = { version =  "1.49.0", features = ["full"]}
