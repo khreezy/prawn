@@ -11,6 +11,7 @@ pub(crate) struct AccessTokenWithExpiry {
     pub(crate) expiry: DateTime<Utc>,
 }
 
+#[derive(Clone)]
 pub(crate) struct AuthProvider {
     pub(crate) access_token: Arc<RwLock<AccessTokenWithExpiry>>,
     pub(crate) refresh_token: RefreshToken,

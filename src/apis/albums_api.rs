@@ -36,6 +36,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums/{id}
     ///
     /// Retrieves single album by id.
+    /// https://tidal-music.github.io/tidal-api-reference/#/albums/get_albums__id_
     async fn get_album<'id, 'country_code, 'include, 'share_code>(
         &self,
         id: &'id str,
@@ -47,6 +48,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums/{id}/relationships/artists
     ///
     /// Retrieves artists relationship.
+    /// https://tidal-music.github.io/tidal-api-reference/#/albums/get_albums__id__relationships_artists
     async fn get_album_artists<'id, 'page_cursor, 'country_code, 'include, 'share_code>(
         &self,
         id: &'id str,
@@ -59,6 +61,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums/{id}/relationships/coverArt
     ///
     /// Retrieves coverArt relationship.
+    /// https://tidal-music.github.io/tidal-api-reference/#/albums/get_albums__id__relationships_coverArt
     async fn get_album_cover_art<'id, 'page_cursor, 'country_code, 'include, 'share_code>(
         &self,
         id: &'id str,
@@ -71,6 +74,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums/{id}/relationships/genres
     ///
     /// Retrieves genres relationship.
+    #[cfg(feature = "internal")]
     async fn get_album_genres<'id, 'page_cursor, 'country_code, 'include, 'share_code>(
         &self,
         id: &'id str,
@@ -83,6 +87,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums/{id}/relationships/items
     ///
     /// Retrieves items relationship.
+    /// https://tidal-music.github.io/tidal-api-reference/#/albums/get_albums__id__relationships_items
     async fn get_album_items<'id, 'page_cursor, 'country_code, 'include, 'share_code>(
         &self,
         id: &'id str,
@@ -95,6 +100,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums/{id}/relationships/owners
     ///
     /// Retrieves owners relationship.
+    /// https://tidal-music.github.io/tidal-api-reference/#/albums/get_albums__id__relationships_owners
     async fn get_album_owners<'id, 'include, 'page_cursor, 'share_code>(
         &self,
         id: &'id str,
@@ -106,6 +112,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums/{id}/relationships/providers
     ///
     /// Retrieves providers relationship.
+    /// https://tidal-music.github.io/tidal-api-reference/#/albums/get_albums__id__relationships_providers
     async fn get_album_providers<'id, 'country_code, 'include, 'page_cursor, 'share_code>(
         &self,
         id: &'id str,
@@ -148,6 +155,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums
     ///
     /// Retrieves multiple albums by available filters, or without if applicable.
+    /// https://tidal-music.github.io/tidal-api-reference/#/albums/get_albums
     async fn get_albums<
         'page_cursor,
         'country_code,
@@ -170,6 +178,7 @@ pub trait AlbumsApi: Send + Sync {
     /// GET /albums/{id}/relationships/similarAlbums
     ///
     /// Retrieves similarAlbums relationship.
+    /// https://tidal-music.github.io/tidal-api-reference/#/albums/get_albums__id__relationships_similarAlbums
     async fn get_similar_albums<'id, 'page_cursor, 'country_code, 'include, 'share_code>(
         &self,
         id: &'id str,
@@ -598,6 +607,7 @@ impl AlbumsApi for AlbumsApiClient {
     }
 
     /// Retrieves genres relationship.
+    #[cfg(feature = "internal")]
     async fn get_album_genres<'id, 'page_cursor, 'country_code, 'include, 'share_code>(
         &self,
         id: &'id str,
