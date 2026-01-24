@@ -1,5 +1,5 @@
 [package]
-name = "barnacle"
+name = "prawn"
 version = "0.0.1"
 authors = ["Kyle Hiller", "OpenAPI Generator team and contributors"]
 description = "Rust Client for the Tidal API providing comprehensive API coverag, and easy OAuth management"
