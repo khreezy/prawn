@@ -283,8 +283,8 @@ impl TidalClient {
     ///  Example
     ///
     /// ```no_run
-    /// use barnacle::client::{TidalClient, TidalClientConfig, OAuthConfig};
-    /// # use barnacle::apis::Api;
+    /// use prawn::client::{TidalClient, TidalClientConfig, OAuthConfig};
+    /// # use prawn::apis::Api;
     /// # smol::block_on(async {
     /// let client_id = "<your client id>";
     /// let client_secret = "<your client secret>";
@@ -338,7 +338,7 @@ impl TidalClient {
     /// # No token yet
     ///
     /// ```
-    /// use barnacle::client::{TidalClientConfig, TidalClient, OAuthConfig};
+    /// use prawn::client::{TidalClientConfig, TidalClient, OAuthConfig};
     /// let client_id = "<your client id>";
     ///
     /// let redirect_uri = "https://example.com/callback";
@@ -370,8 +370,8 @@ impl TidalClient {
     /// Will refresh your access_token in the background and update the token reference internally.
     ///
     /// ```no_run
-    /// use barnacle::client::{TidalClientConfig, TidalClient, OAuthConfig, Token};
-    /// # use barnacle::apis::Api;
+    /// use prawn::client::{TidalClientConfig, TidalClient, OAuthConfig, Token};
+    /// # use prawn::apis::Api;
     /// # smol::block_on(async {
     /// let client_id = "[client_id]";
     /// let redirect_uri = "https://example.com/callback";
@@ -498,7 +498,7 @@ impl TidalClient {
     /// Example
     ///
     /// ```
-    /// use barnacle::client::{TidalClientConfig, TidalClient, OAuthConfig};
+    /// use prawn::client::{TidalClientConfig, TidalClient, OAuthConfig};
     /// let client_id = "<your client id>";
     ///
     /// let redirect_uri = "https://example.com/callback";
@@ -546,8 +546,8 @@ impl TidalClient {
     /// ### Client Credentials flow
     ///
     /// ```no_run
-    /// use barnacle::client::{TidalClientConfig, TidalClient, OAuthConfig};
-    /// # use barnacle::apis::Api;
+    /// use prawn::client::{TidalClientConfig, TidalClient, OAuthConfig};
+    /// # use prawn::apis::Api;
     /// # smol::block_on(async {
     /// let client_id = "<your client id>";
     /// let client_secret = "<your client secret>";
@@ -608,8 +608,8 @@ impl TidalClient {
     /// ### Exchange url for token and call API
     ///
     /// ```no_run
-    /// use barnacle::client::{TidalClientConfig, TidalClient, OAuthConfig, Token};
-    /// # use barnacle::apis::Api;
+    /// use prawn::client::{TidalClientConfig, TidalClient, OAuthConfig, Token};
+    /// # use prawn::apis::Api;
     /// # smol::block_on(async {
     /// // ... /callback implementation ...
     /// let code = "<extract from query params>";

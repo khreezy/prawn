@@ -169,26 +169,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "barnacle"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "chrono",
- "httptest",
- "oauth2",
- "reqwest",
- "reqwest-middleware",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_repr",
- "smol",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1177,6 +1157,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "prawn"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "httptest",
+ "oauth2",
+ "reqwest",
+ "reqwest-middleware",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_repr",
+ "smol",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]
