@@ -1,5 +1,7 @@
-use std::ops::Deref;
+use std::ops::{Deref, SubAssign};
 use std::sync::{Arc, RwLock};
+use std::thread::sleep;
+use std::time::Duration;
 use std::vec::IntoIter;
 
 use crate::apis::configuration::Configuration;
@@ -33,6 +35,21 @@ pub struct TidalClientError {
 }
 
 impl Error for TidalClientError {}
+
+impl From<reqwest_middleware::Error> for TidalClientError {
+    fn from(value: reqwest_middleware::Error) -> Self {
+        return TidalClientError {
+            msg: "Error executing middleware".to_string(),
+            cause: value.to_string(),
+        };
+    }
+}
+
+impl From<TidalClientError> for reqwest_middleware::Error {
+    fn from(value: TidalClientError) -> Self {
+        return Self::Middleware(value.into());
+    }
+}
 
 impl Display for TidalClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -94,6 +111,10 @@ impl From<StandardTokenResponse<EmptyExtraTokenFields, BasicTokenType>> for Toke
     }
 }
 
+/// Retry configuration for ['TidalClient`]. Intentionally empty as of now because
+/// it is used simply to enable/disable.
+pub struct RetryConfig {}
+
 /// [`TidalClient`] configuration used to initialize new
 /// client with [`TidalClient::new`].
 pub struct TidalClientConfig {
@@ -102,6 +123,8 @@ pub struct TidalClientConfig {
     pub auth_token: Option<Token>,
     /// Configuration for OAuth helper methods.
     pub oauth_config: OAuthConfig,
+    /// Enables retrying rate limited requests to the Tidal API with exponential backoff when 429 error codes are received.
+    pub retry_config: Option<RetryConfig>,
 }
 
 /// OAuth configuration used in [`TidalClientConfig`].
@@ -163,6 +186,7 @@ impl AuthTokenRefreshMiddleware {
         })
     }
 }
+
 #[async_trait::async_trait]
 impl Middleware for AuthTokenRefreshMiddleware {
     async fn handle(
@@ -220,6 +244,76 @@ impl Middleware for AuthTokenRefreshMiddleware {
     }
 }
 
+struct RetryRateLimitsMiddleware {
+    retries: u8,
+    initial_backoff_duration: Duration,
+    backoff_fn: Box<dyn Fn(Duration, u8) -> () + Send + Sync + 'static>,
+}
+
+fn default_backoff_fn(backoff_duration: Duration, retries: u8) -> () {
+    sleep(backoff_duration * (2_u8.pow(retries.into())).into());
+}
+
+impl RetryRateLimitsMiddleware {
+    fn new() -> Self {
+        Self {
+            retries: 5,
+            initial_backoff_duration: Duration::from_millis(200),
+            backoff_fn: Box::new(default_backoff_fn),
+        }
+    }
+
+    async fn do_with_retries(
+        &self,
+        mut req: Request,
+        next: Next<'_>,
+        extensions: &mut Extensions,
+    ) -> reqwest_middleware::Result<Response> {
+        let mut resp_result: reqwest_middleware::Result<Response> = Err(TidalClientError {
+            msg: "Error executing retry middleware".to_string(),
+            cause: "failed to run request once".to_string(),
+        }
+        .into());
+
+        let total_tries = self.retries + 1;
+        let mut tries_left = total_tries;
+
+        while tries_left > 0 {
+            let maybe_cloned_req = req.try_clone();
+
+            resp_result = next.clone().run(req, extensions).await;
+
+            let resp = match resp_result {
+                Ok(ref r) => r,
+                Err(e) => return Err(e),
+            };
+
+            match (&resp.status(), maybe_cloned_req) {
+                (&StatusCode::TOO_MANY_REQUESTS, Some(cloned_req)) => {
+                    tries_left.sub_assign(1);
+                    (self.backoff_fn)(self.initial_backoff_duration, total_tries - tries_left);
+                    req = cloned_req
+                }
+                _ => return resp_result,
+            }
+        }
+
+        return resp_result;
+    }
+}
+
+#[async_trait::async_trait]
+impl Middleware for RetryRateLimitsMiddleware {
+    async fn handle(
+        &self,
+        req: Request,
+        extensions: &mut Extensions,
+        next: Next<'_>,
+    ) -> reqwest_middleware::Result<Response> {
+        self.do_with_retries(req, next, extensions).await
+    }
+}
+
 impl Deref for TidalClient {
     type Target = ApiClient;
     fn deref(&self) -> &Self::Target {
@@ -235,11 +329,11 @@ fn to_scopes(scopes: Vec<&str>) -> Vec<Scope> {
 }
 
 impl TidalClient {
-    fn api_client_from_token(
+    fn middleware_client_from_token(
         oauth_http_client: reqwest::Client,
         oauth_client: OAuthClient,
         auth_token: Token,
-    ) -> Result<ApiClient> {
+    ) -> Result<reqwest_middleware::ClientWithMiddleware> {
         let api_http_client = reqwest::Client::new();
         let expiry = match DateTime::parse_from_rfc3339(&auth_token.expiry) {
             Ok(e) => e,
@@ -266,15 +360,9 @@ impl TidalClient {
             oauth_client: oauth_client,
         };
 
-        let middleware_client = ClientBuilder::new(api_http_client)
+        Ok(ClientBuilder::new(api_http_client)
             .with(refresh_middleware)
-            .build();
-
-        Ok(ApiClient::new(Arc::new(Configuration {
-            client: middleware_client,
-            oauth_access_token: None,
-            ..Default::default()
-        })))
+            .build())
     }
 
     ///  Return a new copy of this client with updated or initialized token information.
@@ -298,6 +386,7 @@ impl TidalClient {
     ///       client_secret: Some(client_secret.to_string()),
     ///   },
     ///   auth_token: None, // we haven't authorized yet, so we  don't have  this.
+    ///   retry_config: None,
     /// };
     ///
     /// let client = TidalClient::new(config)?;
@@ -312,11 +401,17 @@ impl TidalClient {
     /// });
     /// ```
     pub fn with_token(self, auth_token: Token) -> Result<Self> {
-        let api_client = Self::api_client_from_token(
+        let middleware_client = Self::middleware_client_from_token(
             self.oauth_http_client.clone(),
             self.oauth_client.clone(),
             auth_token,
         )?;
+
+        let api_client = ApiClient::new(Arc::new(Configuration {
+            client: middleware_client,
+            oauth_access_token: None,
+            ..Default::default()
+        }));
 
         Ok(Self {
             api_client,
@@ -350,6 +445,7 @@ impl TidalClient {
     ///         client_secret: None
     ///     },
     ///     auth_token: None, // we haven't authorized yet, so we  don't have  this.
+    ///     retry_config: None,
     /// };
     ///
     /// let client = TidalClient::new(config)?;
@@ -389,6 +485,7 @@ impl TidalClient {
     ///         client_secret: None,
     ///     },
     ///     auth_token: Some(token),
+    ///     retry_config: None,
     /// };
     ///
     /// let client_with_token =  TidalClient::new(config_with_token)?;
@@ -456,21 +553,33 @@ impl TidalClient {
             None => oauth_client,
         };
 
-        let api_client = match config.auth_token {
-            Some(auth_token) => Self::api_client_from_token(
+        let auth_middleware_client = match config.auth_token {
+            Some(auth_token) => Self::middleware_client_from_token(
                 oauth_http_client.clone(),
                 oauth_client.clone(),
                 auth_token,
             )?,
             None => {
                 let api_http_client = reqwest::Client::new();
-                let middleware_client = ClientBuilder::new(api_http_client).build();
-                ApiClient::new(Arc::new(Configuration {
-                    client: middleware_client,
-                    ..Default::default()
-                }))
+                ClientBuilder::new(api_http_client).build()
             }
         };
+
+        let retry_middleware_client = match config.retry_config {
+            Some(_) => {
+                let retry_middleware = RetryRateLimitsMiddleware::new();
+
+                ClientBuilder::from_client(auth_middleware_client)
+                    .with(retry_middleware)
+                    .build()
+            }
+            None => auth_middleware_client,
+        };
+
+        let api_client = ApiClient::new(Arc::new(Configuration {
+            client: retry_middleware_client,
+            ..Default::default()
+        }));
 
         return Ok(TidalClient {
             api_client: api_client,
@@ -510,6 +619,7 @@ impl TidalClient {
     ///         client_secret: None
     ///     },
     ///     auth_token: None, // we haven't authorized yet, so we  don't have  this.
+    ///     retry_config: None,
     /// };
     ///
     /// let client = TidalClient::new(config)?;
@@ -560,7 +670,8 @@ impl TidalClient {
     ///         client_id: client_id.to_string(),
     ///         client_secret: Some(client_secret.to_string()),
     ///     },
-    ///     auth_token: None // we haven't authorized yet, so we  don't have  this.
+    ///     auth_token: None, // we haven't authorized yet, so we  don't have  this.
+    ///     retry_config: None,
     /// };
     ///
     /// let client = TidalClient::new(config)?;
@@ -574,7 +685,8 @@ impl TidalClient {
     ///         client_id: client_id.to_string(),
     ///         client_secret: None
     ///     },
-    ///     auth_token: Some(token)
+    ///     auth_token: Some(token),
+    ///     retry_config: None,
     /// };
     ///
     /// let client_with_token =  TidalClient::new(config_with_token)?;
@@ -626,6 +738,7 @@ impl TidalClient {
     ///         client_secret: None
     ///     },
     ///     auth_token: None, // we haven't authorized yet, so we  don't have  this.
+    ///     retry_config: None,
     /// };
     ///
     /// let client = TidalClient::new(config)?;
@@ -707,6 +820,7 @@ mod tests {
                     client_secret: None,
                 },
                 auth_token: None,
+                retry_config: None,
             };
 
             let client = TidalClient::new(client_config)?;
@@ -740,6 +854,91 @@ mod tests {
             assert!(has_scopes);
             assert!(has_state);
             assert!(has_challenge);
+            Ok(())
+        }
+    }
+
+    mod test_retry_middleware {
+        use super::*;
+        use crate::client::RetryRateLimitsMiddleware;
+
+        use httptest::{matchers::*, responders::*, Expectation, Server};
+
+        #[tokio::test]
+        async fn test_retry_middleware_retries_on_429_and_returns_error(
+        ) -> std::result::Result<(), String> {
+            let expected_duration = Duration::from_millis(200);
+
+            let backoff_fn = |duration: Duration, _: u8| -> () {
+                assert_eq!(duration, Duration::from_millis(200));
+            };
+
+            let middleware = RetryRateLimitsMiddleware {
+                retries: 2,
+                initial_backoff_duration: expected_duration,
+                backoff_fn: Box::new(backoff_fn),
+            };
+
+            let http_client = reqwest::Client::new();
+
+            let middleware_client = reqwest_middleware::ClientBuilder::new(http_client)
+                .with(middleware)
+                .build();
+
+            let server = Server::run();
+
+            server.expect(
+                Expectation::matching(request::method("GET"))
+                    .times(3)
+                    .respond_with(status_code(429)),
+            );
+
+            let resp = middleware_client
+                .get(server.url_str(""))
+                .send()
+                .await
+                .expect("failed to make request");
+
+            assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_retry_middleware_retries_on_429_and_returns_successes(
+        ) -> std::result::Result<(), String> {
+            let expected_duration = Duration::from_millis(200);
+
+            let backoff_fn = |duration: Duration, _: u8| -> () {
+                assert_eq!(duration, Duration::from_millis(200));
+            };
+
+            let middleware = RetryRateLimitsMiddleware {
+                retries: 2,
+                initial_backoff_duration: expected_duration,
+                backoff_fn: Box::new(backoff_fn),
+            };
+
+            let http_client = reqwest::Client::new();
+
+            let middleware_client = reqwest_middleware::ClientBuilder::new(http_client)
+                .with(middleware)
+                .build();
+
+            let server = Server::run();
+
+            server.expect(
+                Expectation::matching(request::method("GET"))
+                    .times(3)
+                    .respond_with(cycle![status_code(429), status_code(429), status_code(200)]),
+            );
+
+            let resp = middleware_client
+                .get(server.url_str(""))
+                .send()
+                .await
+                .expect("failed to make request");
+
+            assert_eq!(resp.status(), StatusCode::OK);
             Ok(())
         }
     }
@@ -865,7 +1064,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn test_auth_refresh_middleware_does_not_refresh_unexpired_toknes(
+        async fn test_auth_refresh_middleware_does_not_refresh_unexpired_tokens(
         ) -> std::result::Result<(), String> {
             let server = Server::run();
 
