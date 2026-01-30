@@ -28,7 +28,8 @@
 //!         client_id: client_id.to_string(),
 //!         client_secret: None
 //!     },
-//!     auth_token: None // we haven't authorized yet, so we  don't have  this.
+//!     auth_token: None, // we haven't authorized yet, so we  don't have  this.
+//!     retry_config: None,
 //! };
 //
 //! let client = TidalClient::new(config)?;
@@ -44,12 +45,12 @@
 //! # Ok::<(), String>(())
 //! ```
 //!
-//! ### Exchange url for token and call API
+//! ### Exchange url for token and call API, retry rate limited requests
 //!
 //! ```no_run
 //! # smol::block_on( async {
 //!
-//! use prawn::client::{TidalClient, TidalClientConfig, OAuthConfig, Token};
+//! use prawn::client::{TidalClient, TidalClientConfig, OAuthConfig, Token, RetryConfig};
 //! # use prawn::apis::Api;
 //! // ... /callback implementation ...
 //! let code = "<extract from query params>";
@@ -66,6 +67,7 @@
 //!         client_secret: None
 //!     },
 //!     auth_token: None, // we haven't authorized yet, so we  don't have  this.
+//!     retry_config: Some(RetryConfig{}), // enables retries with exponential backoff when we get 429 response codes from Tidal.
 //! };
 //!
 //! let client = TidalClient::new(config)?;
@@ -97,6 +99,7 @@
 //!         client_secret: Some(client_secret.to_string()),
 //!     },
 //!     auth_token: None, // we haven't authorized yet, so we  don't have  this.
+//!     retry_config: None
 //! };
 //!
 //! let client = TidalClient::new(config)?;
